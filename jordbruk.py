@@ -1,31 +1,17 @@
-import re
+# coding: utf-8
 import csv
 from fractions import Fraction
 import pypyodbc
+from pyparsing import Word, alphas, Regex, ZeroOrMore, Group
+import logging
 
 
 def split(s):
-    if s is None:
-        return
-    s = s.strip()
-    s = re.sub('[%]', '', s)
-    num = False
-    pair = ["", ""]
-    for cur in s:
-        if cur.isdigit() or cur == r"/":
-            if num is False:
-                num = True
-            pair[1] += cur
-        elif cur.isspace():
-            if num is True:
-                pair[1] += cur
-        else:
-            if num is True:
-                num = False
-                yield pair
-                pair = ["", ""]
-            pair[0] += cur
-    yield pair
+    if s is None or "!" in s:
+        return []
+    match = ZeroOrMore(Group(Word(alphas+"æøåÆØÅ") + Regex(r"[0-9/ ]*\d")))
+    result = match.parseString(s.replace("%", ""))
+    return result.asList()
 
 
 def parse(fraction_string):
@@ -35,12 +21,14 @@ def parse(fraction_string):
     spl = s.split()
     assert(len(spl) == 1 or len(spl) == 2)
     try:
-        return sum(map(Fraction, spl))
+        return float(sum(map(Fraction, spl)))
     except (ValueError, ZeroDivisionError):
-        print(repr(s))
+        logging.info(repr(s))
         return 0
 
+
 def main():
+    logging.basicConfig(filename="jordbruk.log", level=logging.INFO)
     db = r"C:\Users\rhdgjest\Documents\jordbruk\jordbruk.accdb"
     dbstring = r"Driver={{Microsoft Access Driver (*.mdb, *.accdb)}};Dbq={};".format(db)
     conn = pypyodbc.connect(dbstring)
@@ -68,31 +56,28 @@ def main():
     }
 
     rows = []
-    i = 0
     slash = []
-    for row in cursor:
-        #i += 1
-        #if i > 1000:
-        #    break
+    for i, row in enumerate(cursor):
+        print("\r{}".format(i), end="")
         crops = {}
         animals = {}
         for crop in split(row[0]):
             try:
                 crops[crops_map[crop[0]]] = parse(crop[1])
             except KeyError as e:
-                print(e)
+                logging.info(e)
         for animal in split(row[1]):
             try:
                 animals[animals_map[animal[0]]] = parse(animal[1])
             except KeyError as e:
-                print(e)
+                logging.info(e)
         crops.update(animals)
         crops["JID"] = row[2]
         rows.append(crops)
 
     fieldnames = list(crops_map.values()) + list(animals_map.values())
     fieldnames.append('JID')
-    csv.register_dialect('jordbruk', delimiter=';', quoting=csv.QUOTE_ALL)
+    csv.register_dialect('jordbruk', delimiter=';', quoting=csv.QUOTE_NONNUMERIC)
     with open("jordbruk.csv", "w", newline='') as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames, 0.0, dialect='jordbruk')
         writer.writeheader()
@@ -102,5 +87,5 @@ def main():
             slashfile.write(str(line))
             slashfile.write("\n")
 
-
-main()
+if __name__ == "__main__":
+    main()
